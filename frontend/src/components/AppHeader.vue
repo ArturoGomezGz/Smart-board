@@ -15,6 +15,7 @@ defineProps({
       </svg>
     </div>
     <h1>Pizarrón <span>→</span> Claude</h1>
+    <slot name="actions" />
     <div class="status-dot">
       <div class="dot" :class="status"></div>
       <span>{{ statusText }}</span>

@@ -1,26 +1,24 @@
 import { ref } from 'vue'
 
-const API_URL = '/api/analyze'
-
 export function useAnalysis() {
   const isThinking = ref(false)
   const status = ref('offline')
 
-  async function analyze(imageB64, prompt) {
+  async function analyze(imageB64, prompt, mode = 'describe') {
     if (isThinking.value) return null
     isThinking.value = true
     status.value = 'thinking'
 
     try {
-      const res = await fetch(API_URL, {
+      const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_b64: imageB64, prompt }),
+        body: JSON.stringify({ image_b64: imageB64, prompt, mode }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Error del servidor')
       status.value = 'live'
-      return data.text
+      return { content: data.content, mode: data.mode }
     } catch (e) {
       status.value = 'error'
       throw e

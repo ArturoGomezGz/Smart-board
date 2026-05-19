@@ -1,16 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
 import AppHeader from './components/AppHeader.vue'
-import CameraPanel from './components/CameraPanel.vue'
-import ResponsePanel from './components/ResponsePanel.vue'
+import CameraSidebar from './components/CameraSidebar.vue'
+import VirtualBoard from './components/VirtualBoard.vue'
 import { useAnalysis } from './composables/useAnalysis'
 
 const { isThinking, status, analyze } = useAnalysis()
 
-const cameraPanel  = ref(null)
-const responsePanel = ref(null)
-
-const lastFrameB64 = ref(null)
+const cards = ref([])
+let cardId = 0
 
 const statusText = computed(() => ({
   offline:  'offline',
@@ -19,67 +17,65 @@ const statusText = computed(() => ({
   error:    'error',
 }[status.value] ?? status.value))
 
-function onFrameCaptured(b64) {
-  lastFrameB64.value = b64
+function ts() {
+  return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function onCameraError(msg) {
-  responsePanel.value?.addMessage('system', `⚠ Error de cámara: ${msg}`)
-  status.value = 'error'
-}
-
-async function onSend({ prompt, auto = false }) {
-  const b64 = auto
-    ? cameraPanel.value?.captureNow?.() ?? lastFrameB64.value
-    : lastFrameB64.value
-
-  if (!b64) {
-    if (!auto) responsePanel.value?.addMessage('system', 'Primero captura un frame con el botón ⊙.')
+async function onCapture({ b64, mode, prompt, error }) {
+  if (error) {
+    cards.value.unshift({ id: ++cardId, mode: 'error', content: `⚠ ${error}`, thumbB64: null, time: ts() })
     return
   }
 
-  if (!auto) responsePanel.value?.addMessage('user', prompt, b64)
-
   try {
-    const text = await analyze(b64, prompt)
-    responsePanel.value?.addMessage('claude', text)
+    const result = await analyze(b64, prompt, mode)
+    cards.value.unshift({
+      id: ++cardId,
+      mode: result.mode,
+      content: result.content,
+      thumbB64: b64,
+      time: ts(),
+    })
   } catch (e) {
-    responsePanel.value?.addMessage('system', `⚠ ${e.message}`)
+    cards.value.unshift({ id: ++cardId, mode: 'error', content: `⚠ ${e.message}`, thumbB64: b64, time: ts() })
   }
 }
 
-function onFrameAndSend(b64) {
-  lastFrameB64.value = b64
-  const rp = responsePanel.value
-  if (!rp) return
-  const prompt = rp.activePrompt?.() ?? 'Describe todo lo que ves en el pizarrón con detalle.'
-  rp.addMessage('user', prompt, b64)
-  onSend({ prompt })
+function removeCard(id) {
+  cards.value = cards.value.filter(c => c.id !== id)
+}
+
+function clearBoard() {
+  cards.value = []
 }
 </script>
 
 <template>
-  <AppHeader :status="status" :statusText="statusText" />
+  <AppHeader :status="status" :statusText="statusText">
+    <template #actions>
+      <button v-if="cards.length" class="btn-clear" @click="clearBoard" title="Limpiar board">
+        Limpiar board
+      </button>
+    </template>
+  </AppHeader>
 
-  <main>
-    <CameraPanel
-      ref="cameraPanel"
-      @frame-captured="onFrameAndSend"
-      @camera-error="onCameraError"
-    />
-    <ResponsePanel
-      ref="responsePanel"
-      :isThinking="isThinking"
-      @send="onSend"
-    />
-  </main>
+  <div class="workspace">
+    <CameraSidebar @capture="onCapture" />
+    <VirtualBoard :cards="cards" :isThinking="isThinking" @remove-card="removeCard" />
+  </div>
 </template>
 
 <style scoped>
-main {
-  display: grid;
-  grid-template-columns: 1fr 340px;
+.workspace {
   flex: 1;
+  display: flex;
   overflow: hidden;
 }
+.btn-clear {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-muted); font-family: var(--mono); font-size: 10px;
+  padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-clear:hover { border-color: var(--red); color: var(--red); }
 </style>

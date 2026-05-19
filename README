@@ -1,0 +1,231 @@
+# Resumen del proyecto
+
+SmartBoard es una interfaz web que le da "ojos" a Claude apuntando una cámara física a un pizarrón. Captura frames en tiempo real (manual o automático), los envía a la API de Claude con Vision y muestra el análisis directamente en el browser. El objetivo es experimentar con nuevas formas de interacción humano-IA donde el input es analógico (tiza, marcador, diagramas a mano) y el output es inteligencia contextual.
+
+## Contexto y motivación
+
+La idea surge de querer cerrar el ciclo entre trabajo físico en pizarrón y asistencia de IA. En lugar de fotografiar y subir imágenes manualmente, SmartBoard mantiene la cámara siempre apuntada y hace que Claude esté continuamente disponible para describir, transcribir, explicar o revisar lo que se dibuja o escribe.
+
+Casos de uso inmediatos:
+
+- Transcribir texto o fórmulas escritas a mano
+- Interpretar diagramas de arquitectura o flujos dibujados
+- Explicar conceptos o detectar errores en lo que está en el pizarrón
+- Modo auto-captura para sesiones de brainstorming continuo
+
+---
+
+# Arquitectura del proyecto
+
+## Stack
+
+| Capa | Tecnología |
+| --- | --- |
+| Frontend | HTML + CSS + Vanilla JS (sin framework) |
+| Captura de video | `getUserMedia` API (WebRTC) |
+| Procesamiento de imagen | `Canvas API` (frame → JPEG base64) |
+| IA | Anthropic API `/v1/messages` con `claude-sonnet-4-20250514` |
+| Deploy | Estático — Railway, Vercel, o servidor local |
+
+## Flujo de datos
+
+```
+Cámara física
+  └─ getUserMedia() → <video>
+        └─ Canvas.drawImage() → JPEG base64
+              └─ Anthropic API (image + prompt)
+                    └─ Respuesta texto → UI
+```
+
+## Estructura de archivos
+
+```
+smartboard/
+├── index.html          # Punto de entrada (interfaz completa, ver nota)
+├── README.md           # Este documento / guía de setup
+└── .env.example        # Variables de entorno necesarias
+```
+
+> **Nota sobre `index.html`**: El archivo base ya existe como punto de partida en el repositorio. Contiene la UI completa con acceso a cámara, captura de frames, modos de análisis (chips), auto-captura y panel de respuestas de Claude. Úsalo como referencia de arquitectura al implementar con Claude Code.
+> 
+
+---
+
+# Funcionalidades implementadas en el prototipo
+
+## Acceso a cámara
+
+- Listado automático de cámaras disponibles (`enumerateDevices`)
+- Selector de cámara con refresh manual
+- Soporte para múltiples cámaras (útil si hay webcam + cámara externa apuntada al pizarrón)
+- Constraints de resolución: `1280×720` ideal
+
+## Captura y análisis
+
+- Botón manual **⊙ Capturar y analizar**: toma el frame actual y lo envía a Claude
+- Flash visual en captura para confirmar el momento exacto
+- Thumbnail del frame incluido en el historial de mensajes
+- Última captura guardada en memoria para re-consultar con prompts distintos
+
+## Modos de análisis (chips)
+
+| Chip | Prompt interno |
+| --- | --- |
+| 👁 Describir | Describe todo lo que ves en el pizarrón con detalle |
+| 📐 Diagrama | ¿Qué diagrama o esquema hay dibujado? Explícalo |
+| 📝 Transcribir | Lee y transcribe todo el texto escrito en el pizarrón |
+| 💡 Explicar | Explica el concepto o idea principal que se muestra |
+| 🔍 Revisar | ¿Hay errores en lo que está escrito? Corrígelos |
+| ✏ Custom | Prompt libre escrito por el usuario |
+
+## Auto-captura
+
+- Toggle para activar análisis periódico automático
+- Intervalo configurable (default: 15 segundos, mínimo 5s)
+- Respeta el estado `isThinking` — no lanza requests simultáneas
+
+## Panel de respuestas
+
+- Historial de conversación con thumbnails
+- Timestamps por mensaje
+- Indicador de "pensando" con animación
+- Botón para limpiar historial
+- Status indicator (offline / en vivo / analizando / error)
+
+---
+
+# Guía de implementación con Claude Code
+
+## Setup inicial
+
+```bash
+# Clonar o crear el proyecto
+mkdir smartboard && cd smartboard
+
+# El index.html ya existe como punto de partida en el repo
+# Servir localmente (necesario para evitar CORS con getUserMedia)
+python3 -m http.server 8080
+# Abrir: http://localhost:8080
+```
+
+> ⚠️ **CORS importante**: La Anthropic API bloquea requests directas desde `file://`. Siempre servir el proyecto desde un servidor local o dominio HTTPS. En producción, ver sección de proxy.
+> 
+
+## Variables de entorno
+
+El prototipo base usa la API key directamente en el cliente (solo para desarrollo local). Para producción, **nunca exponer la API key en el frontend**.
+
+```bash
+# .env (para el proxy FastAPI)
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+## Tareas para Claude Code
+
+### Fase 1 — Setup y validación del prototipo
+
+- [ ]  Revisar `index.html` base y validar que el flujo funciona con tu cámara
+- [ ]  Confirmar que `getUserMedia` detecta la cámara del pizarrón
+- [ ]  Probar captura manual y verificar que Claude responde correctamente
+- [ ]  Ajustar resolución si la imagen llega borrosa (subir calidad JPEG en Canvas)
+
+### Fase 2 — Proxy FastAPI (seguridad y producción)
+
+Crear un endpoint en `mrapi` o un servicio separado que actúe como proxy:
+
+```python
+# routes/vision.py
+@router.post("/analyze")
+async def analyze_frame(payload: AnalyzeRequest):
+    # Recibe: { image_b64: str, prompt: str }
+    # Llama a Anthropic con la API key del servidor
+    # Regresa: { response: str }
+```
+
+- [ ]  Crear `POST /vision/analyze` en FastAPI
+- [ ]  Mover la API key al servidor
+- [ ]  Actualizar `index.html` para llamar al proxy en lugar de a Anthropic directo
+- [ ]  Agregar rate limiting básico (evitar abuso del endpoint)
+
+### Fase 3 — Mejoras de UX
+
+- [ ]  Selector de cámara que persiste en `localStorage`
+- [ ]  Historial exportable (JSON o Markdown)
+- [ ]  Modo "anotaciones": dibujar encima del frame capturado antes de enviar
+- [ ]  Hotkey configurable para captura rápida (default: `Space`)
+- [ ]  Soporte para múltiples idiomas en los chips
+
+### Fase 4 — Experimentos avanzados
+
+- [ ]  Diff visual entre capturas: solo analizar si hay cambio significativo en el frame
+- [ ]  Streaming de respuesta de Claude (SSE) para respuestas más rápidas
+- [ ]  Modo "tutor": Claude hace preguntas sobre lo que ve en lugar de solo describir
+- [ ]  Integración con ClickUp: crear tarea desde lo que Claude interpreta en el pizarrón
+- [ ]  WebSocket para análisis en tiempo real continuo
+
+---
+
+# Consideraciones técnicas
+
+## Tamaño de imagen y tokens
+
+Claude Vision acepta imágenes JPEG. A `1280×720` con calidad `0.85`, el base64 pesa ~150–250KB. Esto es aceptable pero puede optimizarse:
+
+```jsx
+// En captureFrame() — bajar resolución si hay latencia
+canvasEl.width = Math.round(vw * 0.75);  // 960px
+canvasEl.height = Math.round(vh * 0.75); // 540px
+const b64 = canvasEl.toDataURL('image/jpeg', 0.75);
+```
+
+## Manejo de CORS en desarrollo
+
+El browser bloquea `getUserMedia` en `file://`. Opciones:
+
+1. `python3 -m http.server 8080` — más rápido para dev
+2. `npx serve .` — alternativa con Node
+3. Proxy FastAPI con `StaticFiles` — integrado en mrapi
+
+## Latencia esperada
+
+| Operación | Tiempo aproximado |
+| --- | --- |
+| Captura de frame | < 10ms |
+| Encode JPEG base64 | < 50ms |
+| API call a Claude (Sonnet) | 1–3 segundos |
+| Render de respuesta | < 10ms |
+| **Total percibido** | **~2–4 segundos** |
+
+---
+
+# Deploy
+
+## Railway (recomendado para mrapi proxy)
+
+```bash
+# Si se integra en mrapi existente
+# Agregar las rutas de vision al router principal
+# El index.html puede servirse como StaticFiles en FastAPI
+
+from fastapi.staticfiles import StaticFiles
+app.mount("/smartboard", StaticFiles(directory="smartboard"), name="smartboard")
+```
+
+## Standalone estático
+
+Cualquier CDN o hosting estático sirve el `index.html` si el proxy está en otro dominio con CORS configurado.
+
+```
+Vercel → index.html (frontend)
+Railway → FastAPI proxy (API key segura)
+```
+
+---
+
+# Referencias
+
+- `index.html` — Prototipo base en el repositorio (punto de partida)
+- [Anthropic Vision API docs](https://docs.anthropic.com/en/docs/build-with-claude/vision)
+- [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)
+- [MDN Canvas API](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
+- Agente UI/UX Review — pipeline similar de Claude Vision en este workspace
