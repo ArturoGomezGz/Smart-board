@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pizarrón → Claude</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d0d0f;
+    --surface: #16161a;
+    --surface2: #1e1e24;
+    --border: rgba(255,255,255,0.08);
+    --border-bright: rgba(255,255,255,0.18);
+    --accent: #b8ff57;
+    --accent-dim: rgba(184,255,87,0.12);
+    --accent-text: #0d0d0f;
+    --text: #e8e8ec;
+    --text-muted: #666680;
+    --text-dim: #444455;
+    --red: #ff5757;
+    --blue: #57b8ff;
+    --radius: 10px;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 1fr;
+  }
+
+  header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-mark {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo-mark svg { width: 16px; height: 16px; }
+  header h1 { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; }
+  header h1 span { color: var(--text-muted); font-weight: 400; }
+
+  .status-dot {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.3s;
+  }
+  .dot.live { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .dot.thinking { background: var(--blue); animation: pulse 1s infinite; }
+  .dot.error { background: var(--red); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 0;
+    height: calc(100vh - 52px - 64px);
+    overflow: hidden;
+  }
+
+  .camera-panel {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .camera-toolbar {
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .cam-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    flex: 1;
+  }
+
+  .camera-container {
+    flex: 1;
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #videoEl {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  #canvasEl { display: none; }
+
+  .camera-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: var(--text-dim);
+  }
+  .camera-placeholder svg { width: 48px; height: 48px; opacity: 0.4; }
+  .camera-placeholder p { font-size: 13px; font-family: var(--mono); }
+
+  .capture-overlay {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+  }
+
+  .flash-overlay {
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+  }
+  .flash-overlay.flash { opacity: 0.7; }
+
+  /* Buttons */
+  button {
+    font-family: var(--sans);
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: all 0.15s;
+  }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    letter-spacing: 0.03em;
+  }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn-primary:active:not(:disabled) { transform: scale(0.97); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 7px 12px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--border-bright); color: var(--text); }
+
+  .btn-icon {
+    background: var(--surface2);
+    color: var(--text);
+    width: 30px; height: 30px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  .btn-icon:hover:not(:disabled) { border-color: var(--border-bright); }
+
+  /* Right panel */
+  .response-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    flex: 1;
+  }
+
+  .messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scroll-behavior: smooth;
+  }
+  .messages-container::-webkit-scrollbar { width: 4px; }
+  .messages-container::-webkit-scrollbar-track { background: transparent; }
+  .messages-container::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+  .message {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    animation: slideIn 0.2s ease-out;
+  }
+  @keyframes slideIn { from { opacity:0; transform:translateY(4px) } to { opacity:1; transform:translateY(0) } }
+
+  .message-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .message-role {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .message-role.claude { color: var(--accent); }
+  .message-role.user { color: var(--blue); }
+  .message-ts {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+  }
+
+  .message-bubble {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .message-bubble.claude { border-left: 2px solid var(--accent); }
+  .message-bubble.user { border-left: 2px solid var(--blue); }
+
+  .message-thumb {
+    width: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .message-thumb img { width: 100%; display: block; }
+
+  .thinking-dots span {
+    animation: blink 1.2s infinite;
+    color: var(--accent);
+    font-size: 18px;
+  }
+  .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,100%{opacity:0.2} 50%{opacity:1} }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-dim);
+    padding: 2rem;
+    text-align: center;
+  }
+  .empty-state p { font-size: 12px; font-family: var(--mono); line-height: 1.6; }
+
+  /* Bottom bar */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+  }
+
+  .prompt-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    resize: none;
+    height: 38px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .prompt-input::placeholder { color: var(--text-dim); }
+  .prompt-input:focus { border-color: var(--border-bright); }
+
+  .shortcut {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 5px;
+  }
+
+  /* Camera select */
+  .cam-select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    border-radius: 6px;
+    padding: 4px 8px;
+    outline: none;
+    cursor: pointer;
+  }
+  .cam-select:focus { border-color: var(--border-bright); }
+
+  /* Mode chips */
+  .mode-chips {
+    display: flex;
+    gap: 4px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    background: transparent;
+    letter-spacing: 0.03em;
+  }
+  .chip.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .chip:hover:not(.active) { border-color: var(--border-bright); color: var(--text); }
+
+  /* Auto-capture toggle */
+  .auto-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px 8px;
+  }
+  .toggle-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+  .toggle {
+    position: relative;
+    width: 28px; height: 15px;
+    display: inline-block;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider-tog {
+    position: absolute; inset: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .slider-tog::before {
+    content: '';
+    position: absolute;
+    width: 9px; height: 9px;
+    left: 2px; top: 2px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+  .toggle input:checked + .slider-tog { background: var(--accent-dim); border-color: var(--accent); }
+  .toggle input:checked + .slider-tog::before { transform: translateX(13px); background: var(--accent); }
+
+  .interval-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    border-radius: 5px;
+    padding: 2px 6px;
+    width: 44px;
+    outline: none;
+    text-align: center;
+  }
+  .interval-input:focus { border-color: var(--border-bright); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="3" fill="#0d0d0f"/>
+      <circle cx="8" cy="8" r="6" stroke="#0d0d0f" stroke-width="1.5"/>
+      <path d="M8 2V1M8 15v-1M2 8H1m14 0h-1" stroke="#0d0d0f" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <h1>Pizarrón <span>→</span> Claude</h1>
+  <div class="status-dot">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">offline</span>
+  </div>
+</header>
+
+<main>
+  <div class="camera-panel">
+    <div class="camera-toolbar">
+      <span class="cam-label">📷 Cámara</span>
+      <select class="cam-select" id="camSelect"></select>
+      <button class="btn-icon" id="btnRefreshCams" title="Actualizar cámaras">↺</button>
+      <button class="btn-ghost" id="btnStartCam">Activar</button>
+    </div>
+
+    <div class="camera-container">
+      <video id="videoEl" autoplay playsinline muted></video>
+      <canvas id="canvasEl"></canvas>
+      <div class="flash-overlay" id="flashOverlay"></div>
+      <div class="camera-placeholder" id="camPlaceholder">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="10" width="40" height="30" rx="4" stroke="currentColor" stroke-width="2"/>
+          <circle cx="24" cy="25" r="8" stroke="currentColor" stroke-width="2"/>
+          <circle cx="24" cy="25" r="3" fill="currentColor"/>
+          <rect x="17" y="6" width="14" height="6" rx="2" stroke="currentColor" stroke-width="2"/>
+          <circle cx="38" cy="15" r="2" fill="currentColor"/>
+        </svg>
+        <p>Activa la cámara para comenzar</p>
+      </div>
+      <div class="capture-overlay" id="captureOverlay" style="display:none">
+        <button class="btn-primary" id="btnCapture">⊙ Capturar y analizar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="response-panel">
+    <div class="panel-header">
+      <span class="panel-title">💬 Respuesta de Claude</span>
+      <button class="btn-icon" id="btnClear" title="Limpiar">✕</button>
+    </div>
+
+    <div class="mode-chips" id="modeChips">
+      <button class="chip active" data-prompt="Describe todo lo que ves en el pizarrón con detalle.">👁 Describir</button>
+      <button class="chip" data-prompt="¿Qué diagrama o esquema hay dibujado? Explícalo.">📐 Diagrama</button>
+      <button class="chip" data-prompt="Lee y transcribe todo el texto escrito en el pizarrón.">📝 Transcribir</button>
+      <button class="chip" data-prompt="Explica el concepto o idea principal que se muestra en el pizarrón.">💡 Explicar</button>
+      <button class="chip" data-prompt="¿Hay errores en lo que está escrito en el pizarrón? Corrígelos.">🔍 Revisar</button>
+      <button class="chip" data-prompt="">✏ Custom</button>
+    </div>
+
+    <div class="auto-row">
+      <span class="toggle-label">Auto-captura</span>
+      <label class="toggle">
+        <input type="checkbox" id="autoCapture">
+        <span class="slider-tog"></span>
+      </label>
+      <span class="toggle-label">cada</span>
+      <input class="interval-input" type="number" id="intervalSecs" value="15" min="5" max="300">
+      <span class="toggle-label">seg</span>
+    </div>
+
+    <div class="messages-container" id="messagesContainer">
+      <div class="empty-state" id="emptyState">
+        <p>Apunta la cámara al pizarrón,<br>actívala y captura un frame.<br><br>Claude lo analizará al instante.</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <textarea class="prompt-input" id="promptInput" placeholder="Pregunta custom sobre el pizarrón... (o usa los chips de arriba)" rows="1"></textarea>
+  <button class="btn-primary" id="btnSend" disabled>Enviar ↗</button>
+  <span class="shortcut">⌘↵</span>
+</footer>
+
+<script>
+const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+
+let stream = null;
+let autoInterval = null;
+let lastFrameB64 = null;
+let isThinking = false;
+
+const videoEl = document.getElementById('videoEl');
+const canvasEl = document.getElementById('canvasEl');
+const camPlaceholder = document.getElementById('camPlaceholder');
+const captureOverlay = document.getElementById('captureOverlay');
+const btnStartCam = document.getElementById('btnStartCam');
+const btnCapture = document.getElementById('btnCapture');
+const btnSend = document.getElementById('btnSend');
+const btnClear = document.getElementById('btnClear');
+const btnRefreshCams = document.getElementById('btnRefreshCams');
+const camSelect = document.getElementById('camSelect');
+const promptInput = document.getElementById('promptInput');
+const messagesContainer = document.getElementById('messagesContainer');
+const emptyState = document.getElementById('emptyState');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const flashOverlay = document.getElementById('flashOverlay');
+const autoCapture = document.getElementById('autoCapture');
+const intervalSecs = document.getElementById('intervalSecs');
+
+let activePrompt = "Describe todo lo que ves en el pizarrón con detalle.";
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    const p = chip.dataset.prompt;
+    if (!p) {
+      promptInput.focus();
+      activePrompt = '';
+    } else {
+      activePrompt = p;
+      promptInput.value = '';
+      promptInput.placeholder = p;
+    }
+  });
+});
+
+promptInput.addEventListener('input', () => {
+  if (promptInput.value.trim()) {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    activePrompt = promptInput.value.trim();
+  }
+});
+
+async function loadCameras() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    camSelect.innerHTML = '';
+    if (cams.length === 0) {
+      camSelect.innerHTML = '<option>Sin cámaras</option>';
+      return;
+    }
+    cams.forEach((cam, i) => {
+      const opt = document.createElement('option');
+      opt.value = cam.deviceId;
+      opt.textContent = cam.label || `Cámara ${i + 1}`;
+      camSelect.appendChild(opt);
+    });
+  } catch (e) {
+    camSelect.innerHTML = '<option>Error</option>';
+  }
+}
+
+btnRefreshCams.addEventListener('click', loadCameras);
+loadCameras();
+
+async function startCamera() {
+  try {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); }
+    const deviceId = camSelect.value;
+    const constraints = {
+      video: deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 } }
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = stream;
+    videoEl.style.display = 'block';
+    camPlaceholder.style.display = 'none';
+    captureOverlay.style.display = 'flex';
+    btnStartCam.textContent = 'Reiniciar';
+    setStatus('live', 'en vivo');
+    await loadCameras();
+  } catch (e) {
+    setStatus('error', 'error cámara');
+    addMessage('system', `Error al activar la cámara: ${e.message}. Asegúrate de permitir el acceso.`);
+  }
+}
+
+btnStartCam.addEventListener('click', startCamera);
+
+function setStatus(state, text) {
+  statusDot.className = 'dot ' + state;
+  statusText.textContent = text;
+}
+
+function captureFrame() {
+  if (!stream) return null;
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
+  if (!vw || !vh) return null;
+  canvasEl.width = vw;
+  canvasEl.height = vh;
+  const ctx = canvasEl.getContext('2d');
+  ctx.drawImage(videoEl, 0, 0, vw, vh);
+  const b64 = canvasEl.toDataURL('image/jpeg', 0.85).split(',')[1];
+  lastFrameB64 = b64;
+  return b64;
+}
+
+function flash() {
+  flashOverlay.classList.add('flash');
+  setTimeout(() => flashOverlay.classList.remove('flash'), 150);
+}
+
+function ts() {
+  return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function addMessage(role, text, thumbB64 = null) {
+  if (emptyState) emptyState.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'message';
+  const meta = document.createElement('div');
+  meta.className = 'message-meta';
+  const roleEl = document.createElement('span');
+  roleEl.className = `message-role ${role === 'claude' ? 'claude' : 'user'}`;
+  roleEl.textContent = role === 'claude' ? 'Claude' : role === 'user' ? 'Tú' : 'Sistema';
+  const tsEl = document.createElement('span');
+  tsEl.className = 'message-ts';
+  tsEl.textContent = ts();
+  meta.appendChild(roleEl);
+  meta.appendChild(tsEl);
+  div.appendChild(meta);
+
+  if (thumbB64) {
+    const thumbDiv = document.createElement('div');
+    thumbDiv.className = 'message-thumb';
+    const img = document.createElement('img');
+    img.src = 'data:image/jpeg;base64,' + thumbB64;
+    img.alt = 'Frame capturado';
+    thumbDiv.appendChild(img);
+    div.appendChild(thumbDiv);
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = `message-bubble ${role}`;
+  bubble.textContent = text;
+  div.appendChild(bubble);
+  messagesContainer.appendChild(div);
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  return bubble;
+}
+
+function addThinking() {
+  if (emptyState) emptyState.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'message';
+  div.id = 'thinkingMsg';
+  const meta = document.createElement('div');
+  meta.className = 'message-meta';
+  const roleEl = document.createElement('span');
+  roleEl.className = 'message-role claude';
+  roleEl.textContent = 'Claude';
+  meta.appendChild(roleEl);
+  div.appendChild(meta);
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble claude thinking-dots';
+  bubble.innerHTML = '<span>•</span><span>•</span><span>•</span>';
+  div.appendChild(bubble);
+  messagesContainer.appendChild(div);
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function removeThinking() {
+  const el = document.getElementById('thinkingMsg');
+  if (el) el.remove();
+}
+
+async function analyzeFrame(b64, prompt) {
+  if (isThinking) return;
+  isThinking = true;
+  btnCapture.disabled = true;
+  btnSend.disabled = true;
+  setStatus('thinking', 'analizando...');
+  addThinking();
+
+  try {
+    const res = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+            { type: 'text', text: prompt || 'Describe todo lo que ves en el pizarrón.' }
+          ]
+        }]
+      })
+    });
+
+    const data = await res.json();
+    removeThinking();
+
+    if (data.error) {
+      addMessage('system', '⚠ Error: ' + data.error.message);
+      setStatus('error', 'error API');
+    } else {
+      const text = data.content?.[0]?.text || '(sin respuesta)';
+      addMessage('claude', text);
+      setStatus('live', 'en vivo');
+    }
+  } catch (e) {
+    removeThinking();
+    addMessage('system', '⚠ Error de conexión: ' + e.message);
+    setStatus('error', 'error');
+  }
+
+  isThinking = false;
+  btnCapture.disabled = false;
+  btnSend.disabled = false;
+}
+
+btnCapture.addEventListener('click', () => {
+  const b64 = captureFrame();
+  if (!b64) return;
+  flash();
+  const prompt = promptInput.value.trim() || activePrompt;
+  addMessage('user', prompt, b64);
+  promptInput.value = '';
+  analyzeFrame(b64, prompt);
+});
+
+btnSend.addEventListener('click', () => {
+  if (!lastFrameB64) {
+    addMessage('system', 'Primero captura un frame con el botón ⊙.');
+    return;
+  }
+  const prompt = promptInput.value.trim() || activePrompt;
+  if (!prompt) return;
+  addMessage('user', prompt, lastFrameB64);
+  promptInput.value = '';
+  analyzeFrame(lastFrameB64, prompt);
+});
+
+promptInput.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') btnSend.click();
+});
+
+promptInput.addEventListener('input', () => {
+  btnSend.disabled = !promptInput.value.trim() && !lastFrameB64;
+  if (promptInput.value.trim()) btnSend.disabled = false;
+});
+
+btnClear.addEventListener('click', () => {
+  messagesContainer.innerHTML = '';
+  const es = document.createElement('div');
+  es.className = 'empty-state';
+  es.id = 'emptyState';
+  es.innerHTML = '<p>Apunta la cámara al pizarrón,<br>actívala y captura un frame.<br><br>Claude lo analizará al instante.</p>';
+  messagesContainer.appendChild(es);
+  lastFrameB64 = null;
+});
+
+autoCapture.addEventListener('change', () => {
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
+  if (autoCapture.checked) {
+    const secs = parseInt(intervalSecs.value) || 15;
+    autoInterval = setInterval(() => {
+      if (!isThinking && stream) {
+        const b64 = captureFrame();
+        if (b64) analyzeFrame(b64, activePrompt);
+      }
+    }, secs * 1000);
+  }
+});
+
+intervalSecs.addEventListener('change', () => {
+  if (autoCapture.checked) {
+    autoCapture.dispatchEvent(new Event('change'));
+  }
+});
+
+videoEl.addEventListener('loadedmetadata', () => {
+  btnSend.disabled = false;
+});
+</script>
+</body>
+</html>
